@@ -29,6 +29,11 @@ npx tsx src/index.ts scan ./fixtures/sample-app
 npx tsx src/index.ts evidence
 npx tsx src/index.ts submit
 npx tsx src/index.ts status
+
+# VAPT capability (passive, authorized scope only; backend not connected yet)
+npx tsx src/index.ts vapt scope --target https://app.example.com --target-type URL --authorized-by you@corp --purpose "release assessment"
+npx tsx src/index.ts vapt scan
+npx tsx src/index.ts vapt findings
 ```
 
 ## Notes
@@ -36,3 +41,48 @@ npx tsx src/index.ts status
 - `scan` saves findings locally first, then creates a remote scan job.
 - Token values from the platform always start with `dpdp_`.
 - `rescan` = scan + submit on the **current** assessment version (version bump is done in the frontend).
+- `vapt` is a passive, non-destructive capability: it refuses to run without an
+  explicitly authorized scope, never contacts excluded targets/ports, and
+  stores findings locally under `~/.dpdp/`. Backend VAPT APIs do not exist
+  yet, so `vapt submit`/`vapt status` report local state and show the exact
+  payload that will be submitted once connected.
+
+## Local storage
+
+Local state lives under `~/.dpdp/` and is migrated automatically from the
+legacy single-file `~/.dpdp/config.json` on first use (non-destructive):
+
+```
+~/.dpdp/
+  schema.json                    storage schema version
+  config/config.json             apiBaseUrl, assessmentId
+  config/vapt/<assessmentId>.json  per-assessment VAPT scope (Phase 4)
+  credentials/credentials.json   CLI token (mode 0600 on POSIX)
+  state/current-scan.json        pointer to the current scan (DPDP only)
+  state/scans/<scanId>.json      per-scan state (job id, status, timestamps; VAPT scans carry capability + extra)
+  evidence/<scanId>.json         per-scan evidence (DPDP findings, or VAPT findings at schemaVersion 2)
+```
+
+Evidence is stored per scan, survives failed submissions, and can be
+retrieved offline; the bearer token never appears outside
+`credentials/credentials.json`.
+
+## Development
+
+```bash
+npm install
+npm run build   # typecheck + compile to dist/
+npm test        # node:test via tsx (no extra test deps)
+```
+
+The CLI is organized as an evidence-collection platform: the scanner engine
+(`src/core/scanner/`) orchestrates collectors → analyzers → evidence
+normalization/dedup. The current regex scanner is one analyzer
+(`src/analyzers/source/regex/`); future analyzers register into the engine via
+`src/core/profiles/` without touching the engine or CLI entry point.
+
+## Design documents
+
+The data and execution contract for the future VAPT capability is defined in
+[`docs/vapt/`](./docs/vapt/) (design only — nothing implemented).
+
