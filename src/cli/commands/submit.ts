@@ -11,7 +11,9 @@ export async function actionSubmit(): Promise<void> {
   }
   const stored = await storage.evidence.load(current.scanId);
   if (!stored?.findings.length) {
-    throw new Error("No local findings/scan job. Run dpdp scan <path> first.");
+    throw new Error(
+      "Last scan found 0 DPDP signals, so there is nothing to submit. Scan the project root:  dpdp scan .",
+    );
   }
 
   const config = await requireConfig(storage);

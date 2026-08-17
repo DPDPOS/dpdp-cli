@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createDefaultScanner } from "../../core/profiles/default.js";
 import { openStorage } from "../../storage/index.js";
@@ -12,10 +13,28 @@ export async function actionScan(targetPath: string): Promise<void> {
     throw new Error("Run dpdp configure --assessment <id> first");
   }
 
-  console.log("Scanning (read-only):", path.resolve(targetPath));
-  const { bundle, issues } = await createDefaultScanner().scan(targetPath);
+  const resolved = path.resolve(targetPath);
+  let st;
+  try {
+    st = await fs.stat(resolved);
+  } catch {
+    throw new Error(
+      `Scan path does not exist: ${resolved}\nScan the project folder, e.g.  dpdp scan .`,
+    );
+  }
+  if (!st.isDirectory()) {
+    throw new Error(`Scan path is not a directory: ${resolved}`);
+  }
+
+  console.log("Scanning (read-only):", resolved);
+  const { bundle, issues } = await createDefaultScanner().scan(resolved);
   const findings = bundle.findings;
   console.log(`Found ${findings.length} DPDP evidence signals`);
+  if (findings.length === 0) {
+    console.log(
+      "Nothing matched. Confirm this is the repo root (source, config, docs), not an empty or placeholder path.",
+    );
+  }
 
   // Non-fatal scan issues go to stderr; they never abort a scan.
   for (const issue of issues) {
@@ -27,7 +46,7 @@ export async function actionScan(targetPath: string): Promise<void> {
   const state = await storage.scans.create({
     assessmentId: config.assessmentId,
     targetType: "MIXED",
-    targetPath: path.resolve(targetPath),
+    targetPath: resolved,
   });
   await storage.evidence.save(state.scanId, bundle);
   await storage.scans.setCurrentScanId(state.scanId);
@@ -40,7 +59,7 @@ export async function actionScan(targetPath: string): Promise<void> {
     `/api/v1/assessments/${config.assessmentId}/cli/scans`,
     {
       targetType: "MIXED",
-      targetPath: path.resolve(targetPath),
+      targetPath: resolved,
       cliVersion: "0.1.0",
     },
   )) as { id: string };

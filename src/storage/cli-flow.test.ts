@@ -22,7 +22,6 @@ type StubHandler = (
 ) => { status?: number; data?: unknown } | never;
 
 let originalFetch: typeof globalThis.fetch | undefined;
-let originalHome: string | undefined;
 let originalUserToken: string | undefined;
 
 function stubFetch(handler: StubHandler): void {
@@ -39,9 +38,17 @@ function stubFetch(handler: StubHandler): void {
 
 async function useTempHome(t: { after: (fn: () => unknown) => void }): Promise<string> {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "dpdp-cli-"));
-  t.after(() => fs.rm(home, { recursive: true, force: true }));
-  originalHome = process.env.HOME;
+  const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevProfile;
+    return fs.rm(home, { recursive: true, force: true });
+  });
   return home;
 }
 
@@ -50,15 +57,12 @@ afterEach(() => {
     globalThis.fetch = originalFetch;
     originalFetch = undefined;
   }
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
-  originalHome = undefined;
   if (originalUserToken === undefined) delete process.env.DPDP_USER_TOKEN;
   else process.env.DPDP_USER_TOKEN = originalUserToken;
   originalUserToken = undefined;
 });
 
-describe("CLI command flow (stubbed backend)", () => {
+describe("CLI command flow (stubbed backend)", { concurrency: false }, () => {
   test("init → login → configure → scan → evidence → submit → status", async (t) => {
     await useTempHome(t);
     const calls: string[] = [];
@@ -195,6 +199,8 @@ describe("CLI command flow (stubbed backend)", () => {
 
     await actionLogin({ token: "dpdp_secret", api: "http://127.0.0.1:3000" });
     await assert.rejects(actionScan(FIXTURES), /Run dpdp configure --assessment <id> first/);
+    await actionConfigure({ assessment: "assess-x" });
+    await assert.rejects(actionScan("./this-folder-does-not-exist"), /Scan path does not exist/);
 
     originalUserToken = process.env.DPDP_USER_TOKEN;
     delete process.env.DPDP_USER_TOKEN;

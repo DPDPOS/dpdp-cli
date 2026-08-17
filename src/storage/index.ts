@@ -37,11 +37,15 @@ export type Storage = {
 };
 
 /**
- * Default storage root. Computed lazily so an override of `HOME` (e.g. in
- * tests) takes effect — never evaluated once at module load.
+ * Default storage root. Computed lazily so an override of `HOME` /
+ * `USERPROFILE` (e.g. in tests) takes effect — never evaluated once at
+ * module load. `os.homedir()` ignores `HOME` on Windows, so we read it
+ * ourselves first.
  */
 export function defaultStorageRoot(): string {
-  return path.join(os.homedir(), ".dpdp");
+  const home =
+    process.env.HOME || process.env.USERPROFILE || os.homedir();
+  return path.join(home, ".dpdp");
 }
 
 /**

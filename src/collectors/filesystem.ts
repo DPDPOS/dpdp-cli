@@ -85,7 +85,7 @@ export class FilesystemCollector implements FileCollector {
         if (!kind) continue;
         out.push({
           absolutePath: full,
-          relativePath: path.relative(root, full),
+          relativePath: path.relative(root, full).split(path.sep).join("/"),
           kind,
         });
       }

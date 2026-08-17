@@ -64,7 +64,7 @@ npm install -g dpdp-cli
 dpdp init
 dpdp login --token <dpdp_...> --api https://your-api.example.com
 dpdp configure --assessment <uuid>
-dpdp scan ./path-to-your-code
+dpdp scan .
 dpdp evidence
 dpdp submit
 dpdp status

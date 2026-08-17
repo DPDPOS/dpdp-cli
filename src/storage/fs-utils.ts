@@ -72,8 +72,8 @@ export function assertSafeId(id: string, label = "identifier"): string {
 
 /**
  * Atomic JSON persistence: write to a temporary file in the same directory,
- * then rename over the target. `rename` is atomic on POSIX and replaces
- * existing files on Windows, so readers never observe torn/corrupt content.
+ * then rename over the target. POSIX rename is atomic. On Windows the
+ * destination is removed first because rename cannot overwrite (EPERM).
  */
 export async function atomicWriteJson(
   filePath: string,
@@ -84,7 +84,7 @@ export async function atomicWriteJson(
   const tmp = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: options?.mode });
-    await fs.rename(tmp, filePath);
+    await replaceFile(tmp, filePath);
   } catch (err) {
     await fs.rm(tmp, { force: true }).catch(() => {});
     throw new StorageError(
@@ -92,6 +92,32 @@ export async function atomicWriteJson(
       `Cannot write ${filePath}: ${errMessage(err)}`,
       { cause: err },
     );
+  }
+}
+
+const writeLocks = new Map<string, Promise<void>>();
+
+/**
+ * Serialize writes to the same path in-process, then replace the target.
+ * Windows `rename` does not overwrite an existing file (EPERM); remove first.
+ */
+async function replaceFile(tmp: string, dest: string): Promise<void> {
+  const key = path.resolve(dest);
+  const previous = writeLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  writeLocks.set(key, previous.then(() => current));
+  await previous;
+  try {
+    if (process.platform === "win32") {
+      await fs.rm(dest, { force: true });
+    }
+    await fs.rename(tmp, dest);
+  } finally {
+    release();
+    if (writeLocks.get(key) === current) writeLocks.delete(key);
   }
 }
 

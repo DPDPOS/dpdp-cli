@@ -4,7 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import { actionConfigure } from "./commands/configure.js";
 import { actionLogin } from "./commands/login.js";
 import { actionVaptFindings } from "./commands/vapt/findings.js";
@@ -15,22 +15,22 @@ import { actionVaptStatus } from "./commands/vapt/status.js";
 import { actionVaptCancel } from "./commands/vapt/cancel.js";
 import { openStorage, defaultStorageRoot } from "../storage/index.js";
 
-let originalHome: string | undefined;
-
 function useTempHome(t: { after: (fn: () => unknown) => void }): string {
   const home = path.join(os.tmpdir(), `dpdp-vapt-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(home, { recursive: true });
-  t.after(() => fs.rm(home, { recursive: true, force: true }));
-  originalHome = process.env.HOME;
+  const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevProfile;
+    return fs.rm(home, { recursive: true, force: true });
+  });
   return home;
 }
-
-afterEach(() => {
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
-  originalHome = undefined;
-});
 
 function startLocalServer(t: { after: (fn: () => unknown) => void }): Promise<number> {
   return new Promise((resolve) => {
@@ -68,7 +68,7 @@ async function setup(t: { after: (fn: () => unknown) => void }): Promise<number>
   return startLocalServer(t);
 }
 
-describe("dpdp vapt commands (local target)", () => {
+describe("dpdp vapt commands (local target)", { concurrency: false }, () => {
   test("scope → scan → findings end to end", async (t) => {
     const port = await setup(t);
     const target = `http://127.0.0.1:${port}`;
