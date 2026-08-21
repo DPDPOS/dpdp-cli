@@ -64,7 +64,7 @@ export async function actionScan(
     const provider = createProviderFromEnv();
     if (!provider) {
       console.error(
-        "AI classification skipped: OPENAI_API_KEY not set. " +
+        "AI classification skipped: GROQ_API_KEY not set. " +
           "Set the environment variable to enable AI evidence classification.",
       );
     } else if (findings.length > 0) {
@@ -117,6 +117,6 @@ export function registerScanCommand(program: Command): void {
   program
     .command("scan")
     .argument("<path>", "Directory to scan (read-only)")
-    .option("--ai", "Enable AI evidence classification (requires OPENAI_API_KEY)")
+    .option("--ai", "Enable AI evidence classification (requires GROQ_API_KEY)")
     .action(actionScan);
 }

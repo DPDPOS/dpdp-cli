@@ -266,7 +266,7 @@ export function parseClassificationResponse(
 // OpenAI-compatible provider (fetch-based, no SDK dependency)
 // ---------------------------------------------------------------------------
 
-export type OpenAiProviderOptions = {
+export type OpenAiCompatibleProviderOptions = {
   apiKey: string;
   baseUrl?: string;
   model?: string;
@@ -275,20 +275,19 @@ export type OpenAiProviderOptions = {
 
 /**
  * Create a provider that calls any OpenAI-compatible API using native fetch.
- * Requires OPENAI_API_KEY (required) and optionally OPENAI_BASE_URL / OPENAI_MODEL.
+ * Works with Groq, OpenAI, or any compatible endpoint.
  */
-export function createOpenAiProvider(
-  options: OpenAiProviderOptions,
+export function createOpenAiCompatibleProvider(
+  options: OpenAiCompatibleProviderOptions,
 ): AiProvider {
-  const baseUrl = (options.baseUrl ?? "https://api.openai.com/v1").replace(
-    /\/$/,
-    "",
-  );
-  const model = options.model ?? "gpt-4o-mini";
+  const baseUrl = (
+    options.baseUrl ?? "https://api.groq.com/openai/v1"
+  ).replace(/\/$/, "");
+  const model = options.model ?? "allam-2-7b";
   const timeoutMs = options.timeoutMs ?? 30_000;
 
   return {
-    name: "openai",
+    name: "groq",
     model,
     async complete(request: AiProviderRequest): Promise<AiProviderResponse> {
       const controller = new AbortController();
@@ -326,17 +325,26 @@ export function createOpenAiProvider(
   };
 }
 
+// Keep the old name as a re-export for backward compatibility.
+export const createOpenAiProvider = createOpenAiCompatibleProvider;
+export type OpenAiProviderOptions = OpenAiCompatibleProviderOptions;
+
 /**
- * Read environment variables and create a provider, or return null
- * if the required OPENAI_API_KEY is missing.
+ * Read environment variables and create a Groq provider, or return null
+ * if the required GROQ_API_KEY is missing.
+ *
+ * Configuration:
+ *   GROQ_API_KEY   (required) — Groq API key
+ *   GROQ_BASE_URL  (optional) — defaults to https://api.groq.com/openai/v1
+ *   GROQ_MODEL     (optional) — defaults to allam-2-7b
  */
 export function createProviderFromEnv(): AiProvider | null {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return null;
-  return createOpenAiProvider({
+  return createOpenAiCompatibleProvider({
     apiKey,
-    baseUrl: process.env.OPENAI_BASE_URL,
-    model: process.env.OPENAI_MODEL,
+    baseUrl: process.env.GROQ_BASE_URL,
+    model: process.env.GROQ_MODEL,
   });
 }
 
