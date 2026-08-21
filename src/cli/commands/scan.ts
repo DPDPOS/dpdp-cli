@@ -1,12 +1,20 @@
 import type { Command } from "commander";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { classifyFindings, createProviderFromEnv } from "../../ai/classify.js";
 import { createDefaultScanner } from "../../core/profiles/default.js";
 import { openStorage } from "../../storage/index.js";
 import { api } from "../../transport/api.js";
 import { requireConfig, requireToken } from "./context.js";
 
-export async function actionScan(targetPath: string): Promise<void> {
+export type ScanOptions = {
+  ai?: boolean;
+};
+
+export async function actionScan(
+  targetPath: string,
+  opts: ScanOptions = {},
+): Promise<void> {
   const storage = await openStorage();
   const config = await requireConfig(storage);
   if (!config.assessmentId) {
@@ -51,6 +59,40 @@ export async function actionScan(targetPath: string): Promise<void> {
   await storage.evidence.save(state.scanId, bundle);
   await storage.scans.setCurrentScanId(state.scanId);
 
+  // Optional AI context classification (post-scan, pre-submission).
+  if (opts.ai) {
+    const provider = createProviderFromEnv();
+    if (!provider) {
+      console.error(
+        "AI classification skipped: OPENAI_API_KEY not set. " +
+          "Set the environment variable to enable AI evidence classification.",
+      );
+    } else if (findings.length > 0) {
+      try {
+        const aiResult = await classifyFindings(
+          { findings, targetPath: resolved },
+          provider,
+        );
+        if (aiResult.classifications.length > 0) {
+          await storage.scans.update(state.scanId, {
+            extra: { aiContext: aiResult },
+          });
+          console.log(
+            `AI classified ${aiResult.classifications.length} findings`,
+          );
+        } else {
+          console.log("AI: no classifications produced");
+        }
+      } catch (err) {
+        console.error(
+          `scan warning: AI classification failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+  }
+
   const token = await requireToken(storage);
   const job = (await api(
     config.apiBaseUrl,
@@ -75,5 +117,6 @@ export function registerScanCommand(program: Command): void {
   program
     .command("scan")
     .argument("<path>", "Directory to scan (read-only)")
+    .option("--ai", "Enable AI evidence classification (requires OPENAI_API_KEY)")
     .action(actionScan);
 }
