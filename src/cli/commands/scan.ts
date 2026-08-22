@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { classifyFindings, createProviderFromEnv } from "../../ai/classify.js";
 import { createDefaultScanner } from "../../core/profiles/default.js";
+import { loadEnvFileIntoProcess } from "../../storage/env-file.js";
 import { openStorage } from "../../storage/index.js";
 import { api } from "../../transport/api.js";
 import { requireConfig, requireToken } from "./context.js";
@@ -61,11 +62,16 @@ export async function actionScan(
 
   // Optional AI context classification (post-scan, pre-submission).
   if (opts.ai) {
+    // Load .env ONLY from the user's working directory into process.env.
+    // The scanned target's .env is NEVER loaded — it is untrusted data,
+    // not CLI configuration.
+    await loadEnvFileIntoProcess(path.join(process.cwd(), ".env")).catch(() => {});
+
     const provider = createProviderFromEnv();
     if (!provider) {
       console.error(
-        "AI classification skipped: GROQ_API_KEY not set. " +
-          "Set the environment variable to enable AI evidence classification.",
+        "AI classification skipped: Groq API key is not configured.\n" +
+          "Run `dpdp configure` to configure AI.",
       );
     } else if (findings.length > 0) {
       try {
