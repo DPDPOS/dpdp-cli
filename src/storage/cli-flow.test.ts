@@ -219,4 +219,151 @@ describe("CLI command flow (stubbed backend)", { concurrency: false }, () => {
     assert.ok(logs.some((l) => l === "[]"));
     assert.ok(logs.some((l) => l === "Total: 0"));
   });
+
+  // ------------------------------------------------------------------
+  // aiContext submission tests
+  // ------------------------------------------------------------------
+
+  test("normal submission (no --ai) does not include aiContext", async (t) => {
+    await useTempHome(t);
+    let capturedPayload: Record<string, unknown> | undefined;
+    stubFetch((url, init) => {
+      if (url.includes("/cli/scans") && init?.method === "POST") return { data: { id: "job-ai-1" } };
+      if (url.includes("/cli/evidence/batch")) {
+        capturedPayload = JSON.parse(init?.body as string) as Record<string, unknown>;
+        return { data: { accepted: 1 } };
+      }
+      return { status: 404 };
+    });
+    await actionLogin({ token: "dpdp_secret", api: "http://127.0.0.1:3000" });
+    await actionConfigure({ assessment: "assess-ai-1" });
+    await actionScan(FIXTURES);
+
+    await actionSubmit();
+    assert.ok(capturedPayload, "payload should have been captured");
+    assert.deepEqual(capturedPayload!.findings, (await (await openStorage(defaultStorageRoot())).evidence.load((await (await openStorage(defaultStorageRoot())).scans.getCurrent())!.scanId))!.findings, "findings must be unchanged");
+    assert.equal(capturedPayload!.aiContext, undefined, "aiContext must not be present without --ai");
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload!, "aiContext"), false, "aiContext key must not exist in payload");
+  });
+
+  test("successful AI scan includes aiContext in submission payload", async (t) => {
+    await useTempHome(t);
+    let capturedPayload: Record<string, unknown> | undefined;
+    stubFetch((url, init) => {
+      if (url.includes("/cli/scans") && init?.method === "POST") return { data: { id: "job-ai-2" } };
+      if (url.includes("/cli/evidence/batch")) {
+        capturedPayload = JSON.parse(init?.body as string) as Record<string, unknown>;
+        return { data: { accepted: 1 } };
+      }
+      return { status: 404 };
+    });
+    await actionLogin({ token: "dpdp_secret", api: "http://127.0.0.1:3000" });
+    await actionConfigure({ assessment: "assess-ai-2" });
+    await actionScan(FIXTURES);
+
+    // Simulate what `scan --ai` stores: extra.aiContext on ScanState.
+    const storage = await openStorage(defaultStorageRoot());
+    const current = await storage.scans.getCurrent();
+    assert.ok(current);
+    const fakeAiContext = {
+      classifiedAt: "2026-08-22T00:00:00.000Z",
+      provider: "groq",
+      model: "allam-2-7b",
+      classifications: [
+        {
+          location: "src/a.ts:1",
+          findingType: "consent_reference",
+          classification: "positive_evidence",
+          reasoning: "Consent collection implemented",
+          confidence: 0.92,
+        },
+      ],
+    };
+    await storage.scans.update(current.scanId, { extra: { aiContext: fakeAiContext } });
+
+    await actionSubmit();
+    assert.ok(capturedPayload, "payload should have been captured");
+    assert.deepEqual(capturedPayload!.aiContext, fakeAiContext, "aiContext must match ScanState.extra.aiContext exactly");
+    assert.ok(Array.isArray(capturedPayload!.findings), "findings must still be present");
+  });
+
+  test("AI failure submits findings without aiContext", async (t) => {
+    await useTempHome(t);
+    let capturedPayload: Record<string, unknown> | undefined;
+    stubFetch((url, init) => {
+      if (url.includes("/cli/scans") && init?.method === "POST") return { data: { id: "job-ai-3" } };
+      if (url.includes("/cli/evidence/batch")) {
+        capturedPayload = JSON.parse(init?.body as string) as Record<string, unknown>;
+        return { data: { accepted: 1 } };
+      }
+      return { status: 404 };
+    });
+    await actionLogin({ token: "dpdp_secret", api: "http://127.0.0.1:3000" });
+    await actionConfigure({ assessment: "assess-ai-3" });
+    await actionScan(FIXTURES);
+
+    // Simulate scan --ai failure: extra has no aiContext (or it's absent).
+    // No update to extra — scan without --ai leaves extra undefined.
+
+    await actionSubmit();
+    assert.ok(capturedPayload, "payload should have been captured");
+    assert.equal(capturedPayload!.aiContext, undefined, "aiContext must not be present when AI fails");
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload!, "aiContext"), false, "aiContext key must not exist in payload");
+    // Findings must be structurally unchanged.
+    const storage = await openStorage(defaultStorageRoot());
+    const current = await storage.scans.getCurrent();
+    const stored = await storage.evidence.load(current!.scanId);
+    assert.deepEqual(capturedPayload!.findings, stored!.findings, "findings must be byte-for-byte identical");
+  });
+
+  test("aiContext payload matches ScanState.extra.aiContext exactly", async (t) => {
+    await useTempHome(t);
+    let capturedPayload: Record<string, unknown> | undefined;
+    stubFetch((url, init) => {
+      if (url.includes("/cli/scans") && init?.method === "POST") return { data: { id: "job-ai-4" } };
+      if (url.includes("/cli/evidence/batch")) {
+        capturedPayload = JSON.parse(init?.body as string) as Record<string, unknown>;
+        return { data: { accepted: 1 } };
+      }
+      return { status: 404 };
+    });
+    await actionLogin({ token: "dpdp_secret", api: "http://127.0.0.1:3000" });
+    await actionConfigure({ assessment: "assess-ai-4" });
+    await actionScan(FIXTURES);
+
+    const complexAiContext = {
+      classifiedAt: "2026-08-22T12:34:56.789Z",
+      provider: "groq",
+      model: "mixtral-8x7b-32768",
+      classifications: [
+        {
+          location: "src/a.ts:5",
+          findingType: "consent_reference",
+          classification: "reference_only",
+          reasoning: "TODO comment",
+          confidence: 0.6,
+        },
+        {
+          location: "docs/privacy.md:10",
+          findingType: "notice_language",
+          classification: "positive_evidence",
+          reasoning: "Privacy notice present",
+          confidence: 0.95,
+        },
+      ],
+    };
+
+    const storage = await openStorage(defaultStorageRoot());
+    const current = await storage.scans.getCurrent();
+    assert.ok(current);
+    await storage.scans.update(current.scanId, { extra: { aiContext: complexAiContext } });
+
+    await actionSubmit();
+    assert.ok(capturedPayload);
+    assert.deepEqual(capturedPayload!.aiContext, complexAiContext, "payload aiContext must be structurally identical to ScanState.extra.aiContext");
+
+    // Verify it's a deep equal, not just reference equality.
+    const reserialized = JSON.parse(JSON.stringify(capturedPayload!.aiContext));
+    assert.deepEqual(reserialized, complexAiContext, "re-serialized aiContext must match");
+  });
 });

@@ -19,16 +19,29 @@ export async function actionSubmit(): Promise<void> {
   const config = await requireConfig(storage);
   const token = await requireToken(storage);
 
+  // Include aiContext when present (set by `dpdp scan --ai`).
+  const aiContext = (current.extra as Record<string, unknown> | undefined)
+    ?.aiContext as unknown | undefined;
+
   try {
+    const batchPayload: {
+      scanJobId: string;
+      findings: typeof stored.findings;
+      aiContext?: unknown;
+    } = {
+      scanJobId: current.scanJobId,
+      findings: stored.findings,
+    };
+    if (aiContext !== undefined) {
+      batchPayload.aiContext = aiContext;
+    }
+
     const result = await api(
       config.apiBaseUrl,
       token,
       "POST",
       `/api/v1/assessments/${config.assessmentId}/cli/evidence/batch`,
-      {
-        scanJobId: current.scanJobId,
-        findings: stored.findings,
-      },
+      batchPayload,
     );
     const submittedAt = new Date().toISOString();
     await storage.scans.update(current.scanId, {
